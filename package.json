@@ -6,8 +6,15 @@
     "node": ">=22.13.0"
   },
   "overrides": {
-    "postcss": "8.5.18",
-    "sharp": "0.35.0"
+    "postcss": "8.5.23",
+    "sharp": "0.35.5",
+    "esbuild": "0.28.2",
+    "fflate": "0.7.5",
+    "image-size": "2.0.3",
+    "satori": "0.33.5",
+    "shell-quote": "1.11.0",
+    "undici": "7.30.1",
+    "ws": "8.22.0"
   },
   "scripts": {
     "dev": "WRANGLER_LOG_PATH=.wrangler/wrangler.log vinext dev",
@@ -22,9 +29,9 @@
   },
   "dependencies": {
     "lucide-react": "^1.26.0",
-    "next": "^16.2.11",
-    "react": "19.2.6",
-    "react-dom": "19.2.6",
+    "next": "^16.4.3",
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
     "tone": "^15.1.22"
   },
   "devDependencies": {
@@ -38,12 +45,12 @@
     "@vitejs/plugin-rsc": "0.5.26",
     "concurrently": "^10.0.4",
     "eslint": "9.39.4",
-    "eslint-config-next": "16.2.6",
-    "react-server-dom-webpack": "19.2.6",
+    "eslint-config-next": "16.4.3",
+    "react-server-dom-webpack": "19.2.8",
     "tailwindcss": "4.2.1",
     "typescript": "5.9.3",
     "vinext": "0.0.50",
-    "vite": "8.0.13",
+    "vite": "8.1.6",
     "wrangler": "4.92.0"
   },
   "type": "module"
