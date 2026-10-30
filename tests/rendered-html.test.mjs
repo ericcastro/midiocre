@@ -32,7 +32,7 @@ test("server-renders the MIDIocre application shell", async () => {
   assert.match(html, /<title>MIDIocre — Piano Tutor<\/title>/i);
   assert.match(html, /Library/);
   assert.match(html, /Practice map/);
-  assert.match(html, /Turn a piece into a practice plan/);
+  assert.match(html, /Loading your library/);
   assert.doesNotMatch(html, /codex-preview|react-loading-skeleton|Starter Project/);
 });
 
@@ -88,10 +88,14 @@ test("uses a complete chromatic map for Tone sampler playback", async () => {
 });
 
 test("ships the deterministic structured practice workflow", async () => {
-  const [shell, structuredPractice, types] = await Promise.all([
+  const [shell, structuredPractice, structuredUnits, types] = await Promise.all([
     readFile(new URL("../app/components/AppShell.tsx", import.meta.url), "utf8"),
     readFile(
       new URL("../app/components/StructuredPractice.tsx", import.meta.url),
+      "utf8",
+    ),
+    readFile(
+      new URL("../app/lib/structuredPractice.ts", import.meta.url),
       "utf8",
     ),
     readFile(new URL("../app/lib/types.ts", import.meta.url), "utf8"),
@@ -100,10 +104,49 @@ test("ships the deterministic structured practice workflow", async () => {
   assert.match(shell, /"structured", "balanced", "challenge"/);
   assert.match(types, /"balanced" \| "challenge" \| "structured"/);
   assert.match(structuredPractice, /Learn bar/);
-  assert.match(structuredPractice, /Connect .*→/);
-  assert.match(structuredPractice, /Same mistake again/);
+  assert.match(structuredPractice, /Bridge .*→/);
+  assert.match(structuredPractice, /Bridge window/);
+  assert.match(structuredPractice, /Same on both sides/);
+  assert.match(structuredPractice, /Beats before the bridge/);
+  assert.match(structuredPractice, /Beats after the bridge/);
+  assert.match(structuredPractice, /step=\{0\.25\}/);
+  assert.match(structuredPractice, /Hard passage anywhere/);
+  assert.match(structuredPractice, /cross or ignore bar lines/);
   assert.match(structuredPractice, /Custom trouble spot/);
   assert.match(structuredPractice, /\{index \+ 1\}/);
+  assert.match(structuredUnits, /STRUCTURED_BARS_PER_SECTION = 4/);
+  assert.match(structuredUnits, /This section comes directly from the MIDI timeline/);
+  assert.match(shell, /No AI analysis or credits required/);
+  assert.match(shell, /Add optional AI guidance/);
+});
+
+test("inspects multi-instrument MIDI imports and keeps the screen awake during playback", async () => {
+  const [dialog, api, player, pianoRoll] = await Promise.all([
+    readFile(new URL("../app/components/ImportSongDialog.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/lib/api.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/hooks/useMidiPlayer.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/components/PianoRoll.tsx", import.meta.url), "utf8"),
+  ]);
+
+  assert.match(api, /\/api\/midi\/inspect/);
+  assert.match(dialog, /Which parts do you want to practise/);
+  assert.match(dialog, /left\/right preserved/);
+  assert.match(pianoRoll, /trackColors\[note\.trackIndex\]/);
+  assert.match(player, /wakeLock\.request\("screen"\)/);
+  assert.match(player, /visibilitychange/);
+});
+
+test("offers recent pieces and portable library backups", async () => {
+  const [shell, library, api] = await Promise.all([
+    readFile(new URL("../app/components/AppShell.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/components/SongLibraryDialog.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/lib/api.ts", import.meta.url), "utf8"),
+  ]);
+  assert.match(shell, /Pick up where you left off/);
+  assert.match(shell, /songs\.slice\(0, 4\)/);
+  assert.match(shell, /Restore library backup/);
+  assert.match(library, /Export library backup/);
+  assert.match(api, /\/api\/library\/backup/);
 });
 
 test("supports readable touch controls and direct piano-roll scrubbing", async () => {
@@ -167,7 +210,7 @@ test("ships a persisted metronome and counted loop restart delay", async () => {
 });
 
 test("matches the roll to cyclic practice and moves the library into a dialog", async () => {
-  const [shell, pianoRoll, library, transport, types] = await Promise.all([
+  const [shell, pianoRoll, library, transport, player, types] = await Promise.all([
     readFile(new URL("../app/components/AppShell.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/components/PianoRoll.tsx", import.meta.url), "utf8"),
     readFile(
@@ -175,6 +218,7 @@ test("matches the roll to cyclic practice and moves the library into a dialog", 
       "utf8",
     ),
     readFile(new URL("../app/components/Transport.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/hooks/useMidiPlayer.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/lib/types.ts", import.meta.url), "utf8"),
   ]);
 
@@ -186,8 +230,23 @@ test("matches the roll to cyclic practice and moves the library into a dialog", 
   assert.match(types, /roll_horizontal_zoom: number/);
   assert.match(types, /roll_horizontal_pan: number/);
   assert.match(transport, /Loop timing offset/);
-  assert.match(pianoRoll, /NEXT LOOP/);
-  assert.match(pianoRoll, /COUNT-IN SPACE/);
+  assert.match(transport, /Start&nbsp; \{formatTime\(loopStart\)\}/);
+  assert.match(transport, /End&nbsp; \{formatTime\(loopEnd\)\}/);
+  assert.match(pianoRoll, /PLAYING NOW/);
+  assert.match(pianoRoll, /LOOP RANGE/);
+  assert.match(pianoRoll, /RESTARTS HERE/);
+  assert.doesNotMatch(pianoRoll, /B → A/);
+  assert.match(pianoRoll, /previewOpacity: 0\.42/);
+  assert.doesNotMatch(pianoRoll, /cycleLength/);
+  assert.match(pianoRoll, /COUNT-IN/);
   assert.match(pianoRoll, /note\.time >= loopStart && note\.time < loopEnd/);
   assert.match(pianoRoll, /loopDelayRemainingSeconds/);
+  assert.match(
+    player,
+    /const scheduledFrom = includeBoundaryOnNextScheduleRef\.current[\s\S]*\? scheduledThroughRef\.current/,
+  );
+  assert.match(
+    pianoRoll,
+    /isPlaying && !isMuted && delta <= 0 && delta \+ note\.duration >= 0/,
+  );
 });

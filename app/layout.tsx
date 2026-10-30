@@ -18,6 +18,11 @@ export const metadata: Metadata = {
     "A local-first MIDI player and practical AI tutor for self-taught pianists.",
   icons: {
     icon: "/midiocre-logo.png",
+    apple: {
+      url: "/midiocre-logo.png",
+      sizes: "1024x1024",
+      type: "image/png",
+    },
   },
 };
 

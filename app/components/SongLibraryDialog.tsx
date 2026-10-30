@@ -2,9 +2,11 @@
 
 import {
   FileMusic,
+  Download,
   LoaderCircle,
   Plus,
   Trash2,
+  Upload,
   X,
 } from "lucide-react";
 import type { SongListItem } from "../lib/types";
@@ -19,6 +21,10 @@ interface SongLibraryDialogProps {
   onOpen: (songId: string) => void;
   onDelete: (song: SongListItem) => void;
   onImport: () => void;
+  backupBusy: boolean;
+  backupNotice: string | null;
+  onBackupExport: () => void;
+  onBackupImport: () => void;
 }
 
 function relativeDate(value: string | null) {
@@ -40,6 +46,10 @@ export function SongLibraryDialog({
   onOpen,
   onDelete,
   onImport,
+  backupBusy,
+  backupNotice,
+  onBackupExport,
+  onBackupImport,
 }: SongLibraryDialogProps) {
   return (
     <div className="modal-backdrop" role="presentation" onMouseDown={onClose}>
@@ -59,6 +69,16 @@ export function SongLibraryDialog({
             <X size={18} />
           </button>
         </div>
+
+        <div className="library-backup-actions">
+          <button className="secondary-action" onClick={onBackupExport} disabled={backupBusy || backendOnline === false}>
+            <Download size={15} /> Export library backup
+          </button>
+          <button className="secondary-action" onClick={onBackupImport} disabled={backupBusy || backendOnline === false}>
+            <Upload size={15} /> Restore backup
+          </button>
+        </div>
+        {backupNotice && <p className="library-backup-notice" role="status">{backupNotice}</p>}
 
         <button
           className="upload-button library-import"

@@ -17,10 +17,11 @@ practice map.
 
 - Plays piano MIDI on an 88-key falling-note roll with left, right, or both
   hands isolated.
-- Saves songs, resume position, speed, A/B loops, named loops, and progress in
+- Saves songs, resume position, speed, start/end loops, named loops, and progress in
   a local SQLite library.
-- Offers a chronological **Structured** route: learn a bar, connect it to the
-  next one, then shrink a stubborn passage to a custom trouble spot.
+- Opens new imports in a chronological, AI-free **Structured** route: learn a
+  bar, connect it to the next one, then shrink a stubborn passage to a custom
+  trouble spot.
 - Keeps Balanced and Challenge routes for a difficulty-led practice order.
 - Provides metronome and optional counted loop-delay playback.
 - Includes a centred **Loop offset** control. It moves both loop boundaries
@@ -54,7 +55,7 @@ npm run dev:all
 ```
 
 The web app normally opens on `http://localhost:3000`; the Python API runs on
-`http://127.0.0.1:8000`.
+`http://127.0.0.1:8765`.
 
 ## Use MIDIocre from an iPad
 
@@ -65,12 +66,17 @@ npm run dev:lan
 ```
 
 Open the printed **Network** URL on the iPad. The browser uses that same host
-for the Python API on port 8000.
+for the Python API on port 8765.
+
+In Safari, choose **Share → Add to Home Screen** to save a shortcut with the
+MIDIocre logo. If you already saved a shortcut with a different icon, remove it,
+reload the page in Safari, and add it again.
 
 `dev:lan` exposes the development app and local library to devices on the
 current network. Stop it after practice, avoid public Wi-Fi, and prefer setting
 `OPENAI_API_KEY` on the computer rather than entering it on an unencrypted
-local-network page.
+local-network page. Private LAN addresses, Tailscale `100.64.0.0/10` addresses,
+and Tailscale MagicDNS hostnames are accepted by the API.
 
 ## AI tutor options
 
@@ -96,6 +102,13 @@ data/
 ```
 
 Deleting a piece removes its MIDI file, state, loops, and saved analysis.
+
+Use **Export library backup** from Home or Library to save all MIDI files and
+practice data in a portable, versioned JSON file. **Restore library backup**
+merges it into a library without replacing pieces already present. Keep the
+backup private: it contains your MIDI files, practice history, piece context,
+and saved AI analyses, but no API keys. This format is intended to support a
+future browser-storage migration.
 
 ## Verify changes
 

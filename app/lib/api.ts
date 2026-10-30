@@ -6,16 +6,18 @@ import type {
   SongDetail,
   SongListItem,
   SongState,
+  SongMetadata,
+  TrackAssignment,
 } from "./types";
 
 function defaultApiBase() {
-  if (typeof window === "undefined") return "http://127.0.0.1:8000";
+  if (typeof window === "undefined") return "http://127.0.0.1:8765";
   const hostname =
     window.location.hostname.includes(":") &&
     !window.location.hostname.startsWith("[")
       ? `[${window.location.hostname}]`
       : window.location.hostname;
-  return `http://${hostname}:8000`;
+  return `http://${hostname}:8765`;
 }
 
 export const API_BASE =
@@ -37,15 +39,45 @@ export function listSongs() {
   return apiFetch<SongListItem[]>("/api/songs");
 }
 
+export async function downloadLibraryBackup(): Promise<Blob> {
+  const response = await fetch(`${API_BASE}/api/library/backup`);
+  if (!response.ok) throw new Error(`Backup export failed (${response.status}).`);
+  return response.blob();
+}
+
+export function importLibraryBackup(file: File) {
+  const form = new FormData();
+  form.append("file", file);
+  return apiFetch<{ imported: number; skipped_existing: number }>(
+    "/api/library/backup",
+    { method: "POST", body: form },
+  );
+}
+
 export function getSong(songId: string) {
   return apiFetch<SongDetail>(`/api/songs/${songId}`);
 }
 
-export function uploadSong(file: File, title: string, contextText: string) {
+export function inspectMidi(file: File) {
+  const form = new FormData();
+  form.append("file", file);
+  return apiFetch<SongMetadata>("/api/midi/inspect", {
+    method: "POST",
+    body: form,
+  });
+}
+
+export function uploadSong(
+  file: File,
+  title: string,
+  contextText: string,
+  trackAssignments: Record<string, TrackAssignment>,
+) {
   const form = new FormData();
   form.append("file", file);
   form.append("title", title);
   form.append("context_text", contextText);
+  form.append("track_assignments", JSON.stringify(trackAssignments));
   return apiFetch<SongDetail>("/api/songs", { method: "POST", body: form });
 }
 

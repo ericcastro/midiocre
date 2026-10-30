@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 from io import BytesIO
+import json
 
 import mido
 import pytest
@@ -201,6 +202,7 @@ def test_context_edit_and_old_state_defaults(tmp_path):
     main = configure_app(tmp_path)
     with TestClient(main.app) as client:
         song = upload(client)
+        assert song["state"]["practice_route"] == "structured"
         old_state = song["state"]
         for field in (
             "practice_route",
@@ -365,21 +367,92 @@ def test_route_validation_and_legacy_adapter(tmp_path):
         assert loaded["analysis_is_stale"] is True
 
 
-def test_private_lan_origin_is_allowed_for_tablet_use(tmp_path):
+@pytest.mark.parametrize(
+    "origin",
+    [
+        "http://192.168.1.25:3001",
+        "http://100.94.238.93:3000",
+        "https://midiocre.example-tailnet.ts.net",
+    ],
+)
+def test_private_lan_origin_is_allowed_for_tablet_use(tmp_path, origin):
     main = configure_app(tmp_path)
     with TestClient(main.app) as client:
         response = client.options(
             "/api/health",
             headers={
-                "Origin": "http://192.168.1.25:3001",
+                "Origin": origin,
                 "Access-Control-Request-Method": "GET",
             },
         )
         assert response.status_code == 200
-        assert (
-            response.headers["access-control-allow-origin"]
-            == "http://192.168.1.25:3001"
+        assert response.headers["access-control-allow-origin"] == origin
+
+
+def test_library_backup_round_trip_merges_without_overwriting(tmp_path):
+    main = configure_app(tmp_path / "source")
+    with TestClient(main.app) as client:
+        song = upload(client, title="Saved piece", context="A careful left hand")
+        state = song["state"]
+        state["position_seconds"] = 1.25
+        state["completed_structured_step_ids"] = ["structured:midi-bars-1-4:bar:1"]
+        state["saved_loops"] = [{
+            "id": "favorite", "label": "Opening", "start_seconds": 0,
+            "end_seconds": 1.5, "hand_mode": "right",
+        }]
+        assert client.put(f"/api/songs/{song['id']}/state", json=state).status_code == 200
+        from backend import db
+        with db.connect() as connection:
+            connection.execute(
+                """INSERT INTO analyses(id, song_id, schema_version, provider, model,
+                   input_fingerprint, analysis_json, created_at, updated_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                ("a" * 32, song["id"], "1.1", "openai", "test", "fingerprint",
+                 db.dumps(valid_analysis()), "2026-01-01", "2026-01-01"),
+            )
+        exported = client.get("/api/library/backup")
+        assert exported.status_code == 200
+        assert "attachment" in exported.headers["content-disposition"]
+        backup = exported.json()
+        assert backup["format"] == "midiocre-library"
+        assert backup["version"] == 1
+        assert backup["songs"][0]["analyses"][0]["id"] == "a" * 32
+
+    main = configure_app(tmp_path / "destination")
+    with TestClient(main.app) as client:
+        restored = client.post(
+            "/api/library/backup",
+            files={"file": ("library.json", exported.content, "application/json")},
         )
+        assert restored.status_code == 200, restored.text
+        assert restored.json() == {"imported": 1, "skipped_existing": 0}
+        loaded = client.get(f"/api/songs/{song['id']}").json()
+        assert loaded["title"] == "Saved piece"
+        assert loaded["context_text"] == "A careful left hand"
+        assert loaded["state"]["position_seconds"] == 1.25
+        assert loaded["state"]["completed_structured_step_ids"] == [
+            "structured:midi-bars-1-4:bar:1"
+        ]
+        assert loaded["state"]["saved_loops"][0]["label"] == "Opening"
+        assert loaded["analysis"]["schema_version"] == "1.1"
+        assert client.get(f"/api/songs/{song['id']}/midi").content == (
+            tmp_path / "source" / "midi" / f"{song['id']}.mid"
+        ).read_bytes()
+
+        repeated = client.post(
+            "/api/library/backup",
+            files={"file": ("library.json", exported.content, "application/json")},
+        )
+        assert repeated.json() == {"imported": 0, "skipped_existing": 1}
+        assert len(client.get("/api/songs").json()) == 1
+
+        backup["songs"][0]["midi_sha256"] = "0" * 64
+        broken = client.post(
+            "/api/library/backup",
+            files={"file": ("broken.json", json.dumps(backup), "application/json")},
+        )
+        assert broken.status_code == 422
+        assert len(client.get("/api/songs").json()) == 1
 
 
 def test_storage_repairs_midi_paths_after_the_project_moves(tmp_path):

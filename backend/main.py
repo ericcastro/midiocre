@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import json
 import re
 import uuid
 from contextlib import asynccontextmanager
@@ -9,9 +10,10 @@ from pathlib import Path
 from dotenv import load_dotenv
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 
 from .ai import AnalysisProviderError, analyze_with_ollama, analyze_with_openai
+from .library_backup import MAX_BACKUP_BYTES, export_library, import_library
 from .db import MIDI_DIR, connect, default_state, dumps, ensure_storage, loads
 from .midi_analysis import (
     analysis_input_fingerprint,
@@ -60,9 +62,11 @@ app.add_middleware(
         r"^https?://("
         r"localhost|127(?:\.\d{1,3}){3}|\[::1\]|"
         r"10(?:\.\d{1,3}){3}|"
+        r"100\.(?:6[4-9]|[7-9]\d|1[01]\d|12[0-7])(?:\.\d{1,3}){2}|"
         r"192\.168(?:\.\d{1,3}){2}|"
         r"172\.(?:1[6-9]|2\d|3[01])(?:\.\d{1,3}){2}|"
-        r"[a-zA-Z0-9-]+\.local"
+        r"[a-zA-Z0-9-]+\.local|"
+        r"(?:[a-zA-Z0-9-]+\.)+[a-zA-Z0-9-]+\.ts\.net"
         r")(?::\d+)?$"
     ),
     allow_credentials=True,
@@ -280,11 +284,84 @@ def analysis_schema() -> dict:
     return PieceAnalysis.model_json_schema()
 
 
+@app.get("/api/library/backup")
+def download_library_backup() -> Response:
+    payload = json.dumps(export_library(), separators=(",", ":"), ensure_ascii=False)
+    return Response(
+        payload,
+        media_type="application/json",
+        headers={
+            "Content-Disposition": 'attachment; filename="midiocre-library.json"',
+            "Cache-Control": "no-store",
+        },
+    )
+
+
+def _migrate_legacy_track_mapping(db, row):
+    """Refresh pre-classification metadata without overwriting user choices."""
+    raw_metadata = loads(row["metadata_json"])
+    raw_tracks = raw_metadata.get("tracks", []) if isinstance(raw_metadata, dict) else []
+    if not raw_tracks or any("instrument_id" in track for track in raw_tracks):
+        return row
+
+    midi_path = Path(row["midi_path"])
+    if not midi_path.exists():
+        return row
+    try:
+        _midi, _notes, metadata = parse_midi(midi_path.read_bytes())
+    except ValueError:
+        return row
+
+    state = SongState.model_validate(loads(row["state_json"]))
+    legacy_defaults = {
+        str(track["index"]): track["suggested_assignment"]
+        for track in raw_tracks
+        if "index" in track and "suggested_assignment" in track
+    }
+    if state.track_assignments == legacy_defaults:
+        state.track_assignments = {
+            str(track.index): (
+                track.suggested_assignment if track.default_selected else "ignore"
+            )
+            for track in metadata.tracks
+        }
+        db.execute(
+            "UPDATE song_state SET state_json = ? WHERE song_id = ?",
+            (dumps(state), row["id"]),
+        )
+    db.execute(
+        "UPDATE songs SET metadata_json = ? WHERE id = ?",
+        (dumps(metadata), row["id"]),
+    )
+    return db.execute(SONG_QUERY + " WHERE s.id = ?", (row["id"],)).fetchone()
+
+
+@app.post("/api/library/backup")
+async def upload_library_backup(file: UploadFile = File(...)) -> dict[str, int]:
+    raw = await file.read(MAX_BACKUP_BYTES + 1)
+    return import_library(raw)
+
+
 @app.get("/api/songs", response_model=list[SongListItem])
 def list_songs(request: Request) -> list[SongListItem]:
     with connect() as db:
         rows = db.execute(SONG_QUERY + " ORDER BY s.updated_at DESC").fetchall()
     return [_row_to_song(row, request) for row in rows]
+
+
+@app.post("/api/midi/inspect", response_model=SongMetadata)
+async def inspect_midi(file: UploadFile = File(...)) -> SongMetadata:
+    filename = Path(file.filename or "Untitled.mid").name
+    if Path(filename).suffix.lower() not in {".mid", ".midi"}:
+        raise HTTPException(status_code=415, detail="Choose a .mid or .midi file.")
+    data = await file.read(MAX_MIDI_BYTES + 1)
+    if len(data) > MAX_MIDI_BYTES:
+        raise HTTPException(status_code=413, detail="MIDI files are limited to 20 MB.")
+    try:
+        _midi, _notes, metadata = parse_midi(data)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return metadata
 
 
 @app.post("/api/songs", response_model=SongDetail, status_code=201)
@@ -293,6 +370,7 @@ async def upload_song(
     file: UploadFile = File(...),
     title: str | None = Form(default=None),
     context_text: str = Form(default=""),
+    track_assignments: str | None = Form(default=None),
 ) -> SongDetail:
     filename = Path(file.filename or "Untitled.mid").name
     if Path(filename).suffix.lower() not in {".mid", ".midi"}:
@@ -312,13 +390,32 @@ async def upload_song(
     if len(resolved_title) > 160:
         raise HTTPException(status_code=422, detail="Song titles are limited to 160 characters.")
 
+    assignments = {
+        str(track.index): (
+            track.suggested_assignment if track.default_selected else "ignore"
+        )
+        for track in metadata.tracks
+    }
+    if track_assignments:
+        try:
+            requested_assignments = json.loads(track_assignments)
+        except json.JSONDecodeError as exc:
+            raise HTTPException(status_code=422, detail="Invalid track selection.") from exc
+        valid_track_ids = {str(track.index) for track in metadata.tracks}
+        valid_assignments = {"left", "right", "split", "ignore"}
+        if (
+            not isinstance(requested_assignments, dict)
+            or set(requested_assignments) != valid_track_ids
+            or any(value not in valid_assignments for value in requested_assignments.values())
+            or all(value == "ignore" for value in requested_assignments.values())
+        ):
+            raise HTTPException(status_code=422, detail="Invalid track selection.")
+        assignments = requested_assignments
+
     song_id = uuid.uuid4().hex
     stored_path = MIDI_DIR / f"{song_id}.mid"
     stored_path.write_bytes(data)
     now = utc_now_iso()
-    assignments = {
-        str(track.index): track.suggested_assignment for track in metadata.tracks
-    }
     state = default_state(metadata.duration_seconds, assignments)
 
     with connect() as db:
@@ -341,9 +438,10 @@ async def upload_song(
 def get_song(song_id: str, request: Request) -> SongDetail:
     with connect() as db:
         row = db.execute(SONG_QUERY + " WHERE s.id = ?", (song_id,)).fetchone()
-    if row is None:
-        raise HTTPException(status_code=404, detail="Song not found.")
-    return _row_to_song(row, request, detail=True)
+        if row is None:
+            raise HTTPException(status_code=404, detail="Song not found.")
+        row = _migrate_legacy_track_mapping(db, row)
+        return _row_to_song(row, request, detail=True)
 
 
 @app.put("/api/songs/{song_id}/context", response_model=SongDetail)

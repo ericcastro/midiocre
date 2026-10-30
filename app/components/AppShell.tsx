@@ -5,6 +5,7 @@ import {
   ChevronDown,
   ChevronRight,
   CircleAlert,
+  Download,
   FilePenLine,
   FolderOpen,
   LoaderCircle,
@@ -15,6 +16,7 @@ import {
   Settings2,
   Sparkles,
   Sun,
+  Upload,
   X,
 } from "lucide-react";
 import {
@@ -28,15 +30,18 @@ import {
   analyzeSong,
   API_BASE,
   deleteSong,
+  downloadLibraryBackup,
   getSong,
   getSongBars,
   getSongEvents,
+  importLibraryBackup,
   listSongs,
   saveSongState,
   updateSongContext,
   uploadSong,
 } from "../lib/api";
 import { normalizedEventsToPlayerNotes } from "../lib/midi";
+import { buildStructuredPracticeUnits } from "../lib/structuredPractice";
 import type {
   AiSettings,
   BarTiming,
@@ -80,7 +85,7 @@ const EMPTY_STATE: SongState = {
   saved_loops: [],
   completed_unit_ids: [],
   selected_unit_id: null,
-  practice_route: "balanced",
+  practice_route: "structured",
   completed_structured_step_ids: [],
   selected_structured_step_id: null,
   roll_zoom: 1,
@@ -109,6 +114,10 @@ function stateFromSong(song: SongDetail): SongState {
   };
 }
 
+function isPianoTrack(name: string, classifiedAsPiano: boolean) {
+  return classifiedAsPiano || /\b(piano|right hand|left hand|rh|lh)\b/i.test(name);
+}
+
 export function AppShell() {
   const [songs, setSongs] = useState<SongListItem[]>([]);
   const [activeSong, setActiveSong] = useState<SongDetail | null>(null);
@@ -118,6 +127,9 @@ export function AppShell() {
   const [libraryLoading, setLibraryLoading] = useState(true);
   const [songLoading, setSongLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [backupBusy, setBackupBusy] = useState(false);
+  const [backupNotice, setBackupNotice] = useState<string | null>(null);
+  const backupInputRef = useRef<HTMLInputElement>(null);
   const [analyzing, setAnalyzing] = useState(false);
   const [analysisStartedAt, setAnalysisStartedAt] = useState<number | null>(null);
   const [analysisElapsed, setAnalysisElapsed] = useState(0);
@@ -247,12 +259,10 @@ export function AppShell() {
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
-      void refreshLibrary().then((result) => {
-        if (result[0]) void openSong(result[0].id);
-      });
+      void refreshLibrary();
     }, 0);
     return () => window.clearTimeout(timer);
-  }, [openSong, refreshLibrary]);
+  }, [refreshLibrary]);
 
   const activeSongId = activeSong?.id;
 
@@ -502,11 +512,16 @@ export function AppShell() {
   ]);
 
   const handleUpload = useCallback(
-    async (file: File, title: string, contextText: string) => {
+    async (
+      file: File,
+      title: string,
+      contextText: string,
+      trackAssignments: Record<string, TrackAssignment>,
+    ) => {
       setUploading(true);
       setAppError(null);
       try {
-        const song = await uploadSong(file, title, contextText);
+        const song = await uploadSong(file, title, contextText, trackAssignments);
         setSongs((current) => [song, ...current.filter((item) => item.id !== song.id)]);
         setNotes([]);
         setBarTimings([]);
@@ -525,6 +540,48 @@ export function AppShell() {
     },
     [],
   );
+
+  const handleBackupExport = useCallback(async () => {
+    setBackupBusy(true);
+    setBackupNotice(null);
+    try {
+      const blob = await downloadLibraryBackup();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `midiocre-library-${new Date().toISOString().slice(0, 10)}.json`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+      setBackupNotice("Library backup downloaded. Keep it somewhere safe.");
+    } catch (error) {
+      setAppError(error instanceof Error ? error.message : "Could not export library.");
+    } finally {
+      setBackupBusy(false);
+    }
+  }, []);
+
+  const handleBackupImport = useCallback(async (file: File) => {
+    setBackupBusy(true);
+    setBackupNotice(null);
+    setAppError(null);
+    try {
+      const result = await importLibraryBackup(file);
+      await refreshLibrary();
+      setBackendOnline(true);
+      setBackupNotice(
+        `${result.imported} ${result.imported === 1 ? "piece" : "pieces"} restored` +
+        (result.skipped_existing ? ` · ${result.skipped_existing} already in library` : "") +
+        ". Existing pieces were not changed.",
+      );
+    } catch (error) {
+      setAppError(error instanceof Error ? error.message : "Could not import library backup.");
+    } finally {
+      setBackupBusy(false);
+      if (backupInputRef.current) backupInputRef.current.value = "";
+    }
+  }, [refreshLibrary]);
 
   const handleDelete = useCallback(
     async (song: SongListItem) => {
@@ -604,15 +661,6 @@ export function AppShell() {
     }
   }, [activeSong, contextDraft]);
 
-  const selectedUnit = useMemo(() => {
-    if (!activeSong?.analysis || !songState.selected_unit_id) return null;
-    return (
-      activeSong.analysis.practice_units.find(
-        (unit) => unit.id === songState.selected_unit_id,
-      ) ?? null
-    );
-  }, [activeSong, songState.selected_unit_id]);
-
   const selectedRoute = useMemo(() => {
     if (!activeSong?.analysis || songState.practice_route === "structured") return null;
     return activeSong.analysis.routes.find((route) => route.id === songState.practice_route)
@@ -620,21 +668,64 @@ export function AppShell() {
       ?? null;
   }, [activeSong, songState.practice_route]);
 
-  const orderedUnits = useMemo(() => {
-    if (!activeSong?.analysis) return [];
-    if (songState.practice_route === "structured") {
+  const structuredUnits = useMemo(() => {
+    if (activeSong?.analysis) {
       return [...activeSong.analysis.practice_units].sort(
         (a, b) =>
           a.timing.start_bar - b.timing.start_bar ||
           a.timing.end_bar - b.timing.end_bar,
       );
     }
-    if (!selectedRoute) return [];
+    return buildStructuredPracticeUnits(barTimings);
+  }, [activeSong, barTimings]);
+
+  useEffect(() => {
+    if (songState.practice_route !== "structured" || !structuredUnits.length) {
+      return;
+    }
+    const selectedStillExists = structuredUnits.some(
+      (unit) => unit.id === songState.selected_unit_id,
+    );
+    if (selectedStillExists) return;
+
+    const savedUnitId = songState.selected_structured_step_id?.split(":")[1];
+    const resumeUnit =
+      structuredUnits.find((unit) => unit.id === savedUnitId) ??
+      structuredUnits.find(
+        (unit) => !songState.completed_unit_ids.includes(unit.id),
+      ) ??
+      structuredUnits[0];
+    const timer = window.setTimeout(() => {
+      setExpandedUnit(resumeUnit.id);
+      updateState({ selected_unit_id: resumeUnit.id });
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [
+    songState.completed_unit_ids,
+    songState.practice_route,
+    songState.selected_structured_step_id,
+    songState.selected_unit_id,
+    structuredUnits,
+    updateState,
+  ]);
+
+  const orderedUnits = useMemo(() => {
+    if (songState.practice_route === "structured") {
+      return structuredUnits;
+    }
+    if (!activeSong?.analysis || !selectedRoute) return [];
     const unitMap = new Map(activeSong.analysis.practice_units.map((unit) => [unit.id, unit]));
     return selectedRoute.unit_ids
       .map((unitId) => unitMap.get(unitId))
       .filter((unit): unit is PracticeUnit => Boolean(unit));
-  }, [activeSong, selectedRoute, songState.practice_route]);
+  }, [activeSong, selectedRoute, songState.practice_route, structuredUnits]);
+
+  const selectedUnit = useMemo(() => {
+    if (!songState.selected_unit_id) return null;
+    return (
+      orderedUnits.find((unit) => unit.id === songState.selected_unit_id) ?? null
+    );
+  }, [orderedUnits, songState.selected_unit_id]);
 
   const routeRationale =
     songState.practice_route === "structured"
@@ -643,22 +734,17 @@ export function AppShell() {
 
   const selectPracticeMode = useCallback(
     (mode: PracticeMode) => {
-      if (mode !== "structured" || !activeSong?.analysis) {
+      if (mode !== "structured") {
         updateState({ practice_route: mode });
         return;
       }
-      const chronological = [...activeSong.analysis.practice_units].sort(
-        (a, b) =>
-          a.timing.start_bar - b.timing.start_bar ||
-          a.timing.end_bar - b.timing.end_bar,
-      );
       const savedUnitId = songState.selected_structured_step_id?.split(":")[1];
       const resumeUnit =
-        chronological.find((unit) => unit.id === savedUnitId) ??
-        chronological.find(
+        structuredUnits.find((unit) => unit.id === savedUnitId) ??
+        structuredUnits.find(
           (unit) => !songState.completed_unit_ids.includes(unit.id),
         ) ??
-        chronological[0];
+        structuredUnits[0];
       setExpandedUnit(resumeUnit?.id ?? null);
       updateState({
         practice_route: mode,
@@ -666,9 +752,9 @@ export function AppShell() {
       });
     },
     [
-      activeSong,
       songState.completed_unit_ids,
       songState.selected_structured_step_id,
+      structuredUnits,
       updateState,
     ],
   );
@@ -767,7 +853,7 @@ export function AppShell() {
 
   const saveLoop = useCallback(() => {
     if (rawLoopEnd - rawLoopStart < 0.08) {
-      setAppError("Set B after A before saving this loop.");
+      setAppError("Set the loop end after its start before saving.");
       return;
     }
     const label =
@@ -854,14 +940,53 @@ export function AppShell() {
     }
   }, [activeSong, loadEvents, songState, updateState]);
 
-  const completedCount = activeSong?.analysis
-    ? activeSong.analysis.practice_units.filter((unit) =>
-        songState.completed_unit_ids.includes(unit.id),
-      ).length
-    : 0;
+  const completedCount = orderedUnits.filter((unit) =>
+    songState.completed_unit_ids.includes(unit.id),
+  ).length;
+
+  const instrumentDisplay = useMemo(() => {
+    const colors = ["#62d7c8", "#d58cff", "#f4d35e", "#ee6c8a", "#65b5ff"];
+    const trackColors: Record<number, string> = {};
+    const legend: Array<{ id: string; name: string; color: string }> = [];
+    let colorIndex = 0;
+    for (const track of activeSong?.metadata.tracks ?? []) {
+      const assignment =
+        songState.track_assignments[String(track.index)] ?? track.suggested_assignment;
+      if (assignment === "ignore" || isPianoTrack(track.name, track.is_piano)) continue;
+      const instrumentId = track.instrument_id || `track-${track.index}`;
+      let item = legend.find((entry) => entry.id === instrumentId);
+      if (!item) {
+        item = {
+          id: instrumentId,
+          name: track.instrument_name || track.name,
+          color: colors[colorIndex % colors.length],
+        };
+        colorIndex += 1;
+        legend.push(item);
+      }
+      trackColors[track.index] = item.color;
+    }
+    const hasPiano = (activeSong?.metadata.tracks ?? []).some((track) => {
+      const assignment =
+        songState.track_assignments[String(track.index)] ?? track.suggested_assignment;
+      return isPianoTrack(track.name, track.is_piano) && assignment !== "ignore";
+    });
+    return { trackColors, legend, hasPiano };
+  }, [activeSong, songState]);
 
   return (
     <main className="app-shell">
+      <input
+        ref={backupInputRef}
+        hidden
+        type="file"
+        accept=".json,application/json"
+        aria-label="Choose MIDIocre library backup"
+        onChange={(event) => {
+          const file = event.target.files?.[0];
+          if (file) void handleBackupImport(file);
+        }}
+      />
       <section className="practice-stage">
         <div className="workspace-topbar">
           <div className="workspace-brand">
@@ -875,6 +1000,14 @@ export function AppShell() {
             </span>
           </div>
           <div className="workspace-actions">
+            {activeSong && (
+              <button className="secondary-action" onClick={() => {
+                void persistCurrentState();
+                setActiveSong(null);
+              }}>
+                Home
+              </button>
+            )}
             <button className="secondary-action" onClick={() => setLibraryOpen(true)}>
               <FolderOpen size={17} /> Library
               <span className="library-count">{songs.length}</span>
@@ -909,22 +1042,60 @@ export function AppShell() {
         {!activeSong ? (
           <div className="empty-workspace">
             <div className="empty-orbit"><Music2 size={27} /></div>
-            <span className="eyebrow">Start with a clean MIDI</span>
-            <h1>Turn a piece into a practice plan.</h1>
+            <span className="eyebrow">Your piano practice</span>
+            <h1>{libraryLoading
+              ? "Loading your library…"
+              : songs.length
+                ? "Pick up where you left off."
+                : "Turn a piece into a practice plan."}</h1>
             <p>
-              Import a piano MIDI to hear each hand, set loops, and ask your AI
-              tutor to find the shortcuts hidden in the pattern.
+              {libraryLoading
+                ? "Finding your saved pieces and practice progress."
+                : songs.length
+                ? "Open a recent piece to resume its position, loops, and practice progress."
+                : "Import a piano MIDI to start a structured practice route, with optional AI guidance later."}
             </p>
+            {!libraryLoading && songs.length > 0 && (
+              <div className="welcome-recents">
+                <span className="card-kicker">Recent pieces</span>
+                {songs.slice(0, 4).map((song, index) => (
+                  <button key={song.id} onClick={() => void openSong(song.id)}>
+                    <span className="welcome-recent-icon"><Music2 size={17} /></span>
+                    <span className="welcome-recent-copy">
+                      <strong>{song.title}</strong>
+                      <small>Resume at {formatTime(song.progress * song.duration_seconds)} · {Math.round(song.progress * 100)}% through</small>
+                    </span>
+                    <span className="welcome-recent-action">{index === 0 ? "Resume" : "Open"}</span>
+                  </button>
+                ))}
+                {songs.length > 4 && (
+                  <button className="welcome-view-all" onClick={() => setLibraryOpen(true)}>
+                    View all {songs.length} pieces
+                  </button>
+                )}
+              </div>
+            )}
             <button
               className="primary-action"
               disabled={backendOnline === false}
               onClick={() => setImportOpen(true)}
             >
-              <Plus size={18} /> Import your first piece
+              <Plus size={18} /> {songs.length ? "Import another MIDI" : "Import your first piece"}
             </button>
+            <div className="welcome-backup-actions">
+              <button className="secondary-action" disabled={backupBusy || backendOnline === false} onClick={() => backupInputRef.current?.click()}>
+                <Upload size={15} /> Restore library backup
+              </button>
+              {songs.length > 0 && (
+                <button className="secondary-action" disabled={backupBusy || backendOnline === false} onClick={() => void handleBackupExport()}>
+                  <Download size={15} /> Export library backup
+                </button>
+              )}
+            </div>
+            {backupNotice && <p className="backup-notice" role="status">{backupNotice}</p>}
             {backendOnline === false && (
               <p className="backend-help">
-                Start the Python backend at <code>127.0.0.1:8000</code>, then refresh.
+                Could not reach the Python backend at <code>{API_BASE}</code>.
               </p>
             )}
           </div>
@@ -962,8 +1133,17 @@ export function AppShell() {
               {songLoading && <div className="roll-loading"><LoaderCircle className="spin" /> Opening piece</div>}
               <div className="roll-toolbar">
                 <div className="hand-legend">
-                  <span><i className="left-dot" /> Left hand</span>
-                  <span><i className="right-dot" /> Right hand</span>
+                  {instrumentDisplay.hasPiano && (
+                    <>
+                      <span><i className="left-dot" /> Piano · left</span>
+                      <span><i className="right-dot" /> Piano · right</span>
+                    </>
+                  )}
+                  {instrumentDisplay.legend.map((instrument) => (
+                    <span key={instrument.id}>
+                      <i style={{ background: instrument.color }} /> {instrument.name}
+                    </span>
+                  ))}
                 </div>
                 <span className="keyboard-hint">
                   Drag roll to seek · pinch to zoom · two-finger drag to move keys
@@ -1016,6 +1196,8 @@ export function AppShell() {
                 <PianoRoll
                   notes={notes}
                   currentTime={player.currentTime}
+                  isPlaying={player.isPlaying}
+                  trackColors={instrumentDisplay.trackColors}
                   duration={duration}
                   handMode={songState.hand_mode}
                   loopStart={loopStart}
@@ -1118,22 +1300,27 @@ export function AppShell() {
             <Sparkles size={22} />
             <p>The tutor will turn your piece into small, concrete things to solve.</p>
           </div>
-        ) : !activeSong.analysis ? (
+        ) : !activeSong.analysis && songState.practice_route !== "structured" ? (
           <div className="analysis-start">
-            <div className="analysis-glyph"><Sparkles size={23} /></div>
-            <h3>Find the shortcuts</h3>
+            <div className="analysis-glyph"><Play size={22} fill="currentColor" /></div>
+            <h3>Start with the MIDI</h3>
             <p>
-              Analyze the hands, repeated shapes, coordination points, and likely
-              bottlenecks. Your MIDI stays local; only a compact symbolic summary
-              is sent to the selected model.
+              Follow a chronological, bar-by-bar practice plan immediately. It is
+              generated locally from the MIDI and does not use AI credits.
             </p>
+            <button
+              className="primary-action full"
+              onClick={() => selectPracticeMode("structured")}
+            >
+              <Play size={17} fill="currentColor" /> Start structured practice
+            </button>
             <div className="provider-pill">
-              <span>{aiSettings.provider === "openai" ? "OpenAI" : "Ollama"}</span>
+              <span>Optional AI routes · {aiSettings.provider === "openai" ? "OpenAI" : "Ollama"}</span>
               <strong>{aiSettings.model}</strong>
             </div>
-            <button className="primary-action full" onClick={() => void handleAnalyze()} disabled={analyzing}>
+            <button className="regenerate-button" onClick={() => void handleAnalyze()} disabled={analyzing}>
               {analyzing ? <LoaderCircle className="spin" size={17} /> : <Sparkles size={17} />}
-              {analyzing ? `Studying the piece… ${analysisElapsed}s` : "Analyze this piece"}
+              {analyzing ? `Studying the piece… ${analysisElapsed}s` : "Add AI guidance"}
             </button>
             {analysisError && <div className="analysis-error">{analysisError}</div>}
             <button className="text-button" onClick={() => setSettingsOpen(true)}>
@@ -1149,7 +1336,7 @@ export function AppShell() {
                 <button onClick={() => void handleAnalyze()}>Regenerate</button>
               </div>
             )}
-            {activeSong.analysis.legacy_analysis && (
+            {activeSong.analysis?.legacy_analysis && (
               <div className="legacy-analysis-note">
                 <Sparkles size={14} />
                 <span>Regenerate this map to add musical context and interactive note landmarks.</span>
@@ -1158,7 +1345,10 @@ export function AppShell() {
             <div className="route-picker">
               <span className="card-kicker">Practice route</span>
               <div className="segmented route-segmented" aria-label="Practice route">
-                {(["structured", "balanced", "challenge"] as const).map((routeId) => {
+                {(activeSong.analysis
+                  ? (["structured", "balanced", "challenge"] as const)
+                  : (["structured"] as const)
+                ).map((routeId) => {
                   return (
                     <button
                       key={routeId}
@@ -1180,19 +1370,23 @@ export function AppShell() {
             {songState.practice_route === "structured" ? (
               <div className="structured-route-summary">
                 <strong>Chronological, concrete, and quiet.</strong>
-                <span>The detailed AI commentary stays folded unless you ask for it.</span>
+                <span>
+                  {activeSong.analysis
+                    ? "The detailed AI commentary stays folded unless you ask for it."
+                    : "Built locally from the MIDI timeline. No AI analysis or credits required."}
+                </span>
                 <div className="unit-progress">
-                  <span>{completedCount} of {activeSong.analysis.practice_units.length} sections complete</span>
+                  <span>{completedCount} of {orderedUnits.length} sections complete</span>
                   <i>
                     <b
                       style={{
-                        width: `${(completedCount / activeSong.analysis.practice_units.length) * 100}%`,
+                        width: `${orderedUnits.length ? (completedCount / orderedUnits.length) * 100 : 0}%`,
                       }}
                     />
                   </i>
                 </div>
               </div>
-            ) : (
+            ) : activeSong.analysis ? (
               <>
                 <div className="analysis-overview">
                   <div className="analysis-meta">
@@ -1231,9 +1425,15 @@ export function AppShell() {
 
                 <p className="cue-hint">Hover or focus a cue to see its notes. Click the cue text to seek there; use the pin button to keep multiple cues highlighted.</p>
               </>
-            )}
+            ) : null}
 
             <div className="unit-list">
+              {songState.practice_route === "structured" && !orderedUnits.length && (
+                <div className="tutor-placeholder">
+                  <LoaderCircle className="spin" size={18} />
+                  <p>Building the bar-by-bar practice plan…</p>
+                </div>
+              )}
               {orderedUnits.map((unit, orderIndex) => {
                 const expanded = expandedUnit === unit.id;
                 const complete = songState.completed_unit_ids.includes(unit.id);
@@ -1286,6 +1486,7 @@ export function AppShell() {
                               onActivate={activateStructuredLoop}
                               onToggleComplete={toggleStructuredStep}
                             />
+                            {activeSong.analysis && (
                             <details className={`structured-teacher-notes ${unit.difficulty >= 4 ? "recommended" : ""}`}>
                               <summary>
                                 <span>
@@ -1309,6 +1510,7 @@ export function AppShell() {
                                 />
                               </div>
                             </details>
+                            )}
                           </>
                         ) : (
                           <UnitTeacherNotes
@@ -1344,8 +1546,17 @@ export function AppShell() {
 
             <button className="regenerate-button" onClick={() => void handleAnalyze()} disabled={analyzing}>
               {analyzing ? <LoaderCircle className="spin" size={15} /> : <Sparkles size={15} />}
-              Regenerate practice map
+              {analyzing
+                ? `Studying the piece… ${analysisElapsed}s`
+                : activeSong.analysis
+                  ? "Regenerate practice map"
+                  : "Add optional AI guidance"}
             </button>
+            {!activeSong.analysis && (
+              <button className="text-button" onClick={() => setSettingsOpen(true)}>
+                Configure AI provider
+              </button>
+            )}
             {analysisError && <div className="analysis-error">{analysisError}</div>}
           </div>
         )}
@@ -1365,6 +1576,10 @@ export function AppShell() {
             setLibraryOpen(false);
             setImportOpen(true);
           }}
+          backupBusy={backupBusy}
+          backupNotice={backupNotice}
+          onBackupExport={() => void handleBackupExport()}
+          onBackupImport={() => backupInputRef.current?.click()}
         />
       )}
 
@@ -1530,7 +1745,9 @@ export function AppShell() {
         <ImportSongDialog
           busy={uploading}
           onClose={() => !uploading && setImportOpen(false)}
-          onSubmit={(file, title, contextText) => void handleUpload(file, title, contextText)}
+          onSubmit={(file, title, contextText, trackAssignments) =>
+            void handleUpload(file, title, contextText, trackAssignments)
+          }
         />
       )}
 

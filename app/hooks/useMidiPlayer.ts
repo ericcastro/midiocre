@@ -32,6 +32,16 @@ interface ClickInstrument {
   dispose(): unknown;
 }
 
+interface ScreenWakeLockSentinel {
+  release(): Promise<void>;
+}
+
+interface NavigatorWithWakeLock extends Navigator {
+  wakeLock?: {
+    request(type: "screen"): Promise<ScreenWakeLockSentinel>;
+  };
+}
+
 interface PlayerOptions {
   resetKey?: string | null;
   notes: MidiNote[];
@@ -78,6 +88,7 @@ export function useMidiPlayer({
   const anchorTimeRef = useRef(initialTime);
   const anchorClockRef = useRef(0);
   const scheduledThroughRef = useRef(initialTime);
+  const includeBoundaryOnNextScheduleRef = useRef(true);
   const metronomeScheduledThroughRef = useRef(initialTime);
   const speedRef = useRef(speed);
   const toneRef = useRef<ToneModule | null>(null);
@@ -91,6 +102,7 @@ export function useMidiPlayer({
   const loopDelayNextBeatRef = useRef(0);
   const loopDelaySongSecondsRef = useRef(0);
   const loopDelaySpeedRef = useRef(speed);
+  const wakeLockRef = useRef<ScreenWakeLockSentinel | null>(null);
 
   const audibleNotes = useMemo(
     () =>
@@ -105,6 +117,45 @@ export function useMidiPlayer({
     samplerRef.current?.releaseAll();
     fallbackRef.current?.releaseAll();
   }, [audibleNotes]);
+
+  useEffect(() => {
+    let disposed = false;
+    const requestWakeLock = async () => {
+      if (!isPlaying || document.visibilityState !== "visible" || wakeLockRef.current) {
+        return;
+      }
+      const wakeLock = (navigator as NavigatorWithWakeLock).wakeLock;
+      if (!wakeLock) return;
+      try {
+        const sentinel = await wakeLock.request("screen");
+        if (disposed || !playingRef.current) {
+          await sentinel.release();
+          return;
+        }
+        wakeLockRef.current = sentinel;
+      } catch {
+        // Unsupported contexts and device power policies may reject the request.
+      }
+    };
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        wakeLockRef.current = null;
+        void requestWakeLock();
+      }
+    };
+
+    if (isPlaying) {
+      void requestWakeLock();
+      document.addEventListener("visibilitychange", onVisibilityChange);
+    }
+    return () => {
+      disposed = true;
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+      const sentinel = wakeLockRef.current;
+      wakeLockRef.current = null;
+      if (sentinel) void sentinel.release().catch(() => undefined);
+    };
+  }, [isPlaying]);
 
   useEffect(() => {
     let disposed = false;
@@ -261,6 +312,7 @@ export function useMidiPlayer({
       clearLoopDelay();
       releaseAll();
       reanchor(Math.max(0, Math.min(duration, time)));
+      includeBoundaryOnNextScheduleRef.current = true;
     },
     [clearLoopDelay, duration, reanchor, releaseAll],
   );
@@ -274,6 +326,7 @@ export function useMidiPlayer({
     anchorTimeRef.current = currentTimeRef.current;
     anchorClockRef.current = performance.now();
     scheduledThroughRef.current = currentTimeRef.current;
+    includeBoundaryOnNextScheduleRef.current = true;
     metronomeScheduledThroughRef.current = currentTimeRef.current - 0.001;
     setIsPlaying(true);
   }, [duration, reanchor]);
@@ -306,6 +359,7 @@ export function useMidiPlayer({
         if (elapsed >= delayDuration) {
           clearLoopDelay();
           reanchor(loopStart);
+          includeBoundaryOnNextScheduleRef.current = true;
         } else {
           setLoopDelayRemainingSeconds(
             Math.max(
@@ -329,6 +383,7 @@ export function useMidiPlayer({
           } else {
             releaseAll();
             reanchor(loopStart);
+            includeBoundaryOnNextScheduleRef.current = true;
           }
         } else {
           playingRef.current = false;
@@ -391,7 +446,9 @@ export function useMidiPlayer({
 
       const songNow = computeTime();
       const horizon = songNow + 0.14 * speed;
-      const scheduledFrom = Math.max(scheduledThroughRef.current, songNow - 0.01);
+      const scheduledFrom = includeBoundaryOnNextScheduleRef.current
+        ? scheduledThroughRef.current
+        : Math.max(scheduledThroughRef.current, songNow - 0.01);
       const instrument =
         samplerRef.current?.loaded === true
           ? samplerRef.current
@@ -422,6 +479,7 @@ export function useMidiPlayer({
         }
       }
       scheduledThroughRef.current = horizon;
+      includeBoundaryOnNextScheduleRef.current = false;
 
       if (metronomeEnabled && metronome) {
         const safeTempo = Math.max(1, tempoBpm);
@@ -491,6 +549,7 @@ export function useMidiPlayer({
       clearLoopDelay();
       releaseAll();
       reanchor(initialTime);
+      includeBoundaryOnNextScheduleRef.current = true;
       playingRef.current = false;
       setIsPlaying(false);
     });

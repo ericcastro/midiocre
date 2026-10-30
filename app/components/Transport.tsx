@@ -143,11 +143,11 @@ export function Transport({
 
       <div className="transport-options-row">
         <div className="loop-tools">
-          <button className="time-chip" onClick={onSetA} title="Set loop start to the playhead">
-            A&nbsp; {formatTime(loopStart)}
+          <button className="time-chip" onClick={onSetA} title="Set loop start to the playhead (A key)">
+            Start&nbsp; {formatTime(loopStart)}
           </button>
-          <button className="time-chip" onClick={onSetB} title="Set loop end to the playhead">
-            B&nbsp; {formatTime(loopEnd)}
+          <button className="time-chip" onClick={onSetB} title="Set loop end to the playhead (B key)">
+            End&nbsp; {formatTime(loopEnd)}
           </button>
           <button
             className={`icon-button ${loopEnabled ? "active-loop" : ""}`}

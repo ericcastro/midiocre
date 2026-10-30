@@ -109,6 +109,7 @@ def loads(value: str) -> Any:
 def default_state(duration_seconds: float, assignments: dict[str, str]) -> SongState:
     return SongState(
         loop_end_seconds=duration_seconds,
+        practice_route="structured",
         track_assignments=assignments,
         last_opened_at=utc_now_iso(),
     )

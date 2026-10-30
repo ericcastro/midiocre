@@ -20,6 +20,10 @@ def utc_now_iso() -> str:
 class TrackSummary(BaseModel):
     index: int
     name: str
+    instrument_id: str = ""
+    instrument_name: str = ""
+    is_piano: bool = False
+    default_selected: bool = True
     channel: int | None = None
     note_count: int
     min_pitch: int

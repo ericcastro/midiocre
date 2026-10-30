@@ -18,6 +18,38 @@ from .schemas import BarTiming, MidiEvent, SongMetadata, TrackSummary
 NOTE_NAMES = ("C", "C♯", "D", "E♭", "E", "F", "F♯", "G", "A♭", "A", "B♭", "B")
 
 
+def _clean_track_name(name: str, fallback: str) -> str:
+    return name.replace("\x00", "").strip() or fallback
+
+
+def _instrument_identity(track_name: str, programs: list[int]) -> tuple[str, str, bool]:
+    """Group staves that belong to the same playable part.
+
+    MuseScore commonly exports a grand staff as two same-named MIDI tracks. The
+    track name is more useful than the General MIDI program for arrangements
+    whose sound choice is decorative (the supplied "Vocals" staff uses program
+    66, for example), so names take precedence here.
+    """
+    lowered = track_name.lower()
+    if re.search(r"\b(piano|keyboard|grand|rh|lh|right hand|left hand)\b", lowered):
+        return "piano", "Piano", True
+    if re.search(r"\b(vocal|vocals|voice|choir|singer)\b", lowered):
+        return "vocals", "Vocals", False
+
+    if programs and programs[0] in range(0, 8):
+        return "piano", "Piano", True
+
+    base_name = re.sub(
+        r"\b(left|right|lh|rh|treble|bass|staff|part)\b",
+        " ",
+        track_name,
+        flags=re.IGNORECASE,
+    )
+    base_name = re.sub(r"\s+", " ", base_name).strip(" -_()") or track_name
+    instrument_id = re.sub(r"[^a-z0-9]+", "-", base_name.lower()).strip("-")
+    return instrument_id or "instrument", base_name, False
+
+
 @dataclass
 class ParsedNote:
     pitch: int
@@ -94,10 +126,11 @@ def parse_midi(data: bytes) -> tuple[mido.MidiFile, list[ParsedNote], SongMetada
 
     for track_index, track in enumerate(midi.tracks):
         absolute_tick = 0
-        track_name = track.name.strip() or f"Track {track_index + 1}"
+        track_name = _clean_track_name(track.name, f"Track {track_index + 1}")
         active: dict[tuple[int, int], list[tuple[int, int]]] = defaultdict(list)
         pitches: list[int] = []
         channels: list[int] = []
+        programs: list[int] = []
         track_notes: list[ParsedNote] = []
 
         for message in track:
@@ -106,6 +139,8 @@ def parse_midi(data: bytes) -> tuple[mido.MidiFile, list[ParsedNote], SongMetada
                 time_signature = (message.numerator, message.denominator)
             elif message.type == "key_signature" and key_signature is None:
                 key_signature = message.key
+            elif message.type == "program_change":
+                programs.append(message.program)
             elif message.type == "note_on" and message.velocity > 0:
                 active[(message.channel, message.note)].append((absolute_tick, message.velocity))
                 pitches.append(message.note)
@@ -139,10 +174,16 @@ def parse_midi(data: bytes) -> tuple[mido.MidiFile, list[ParsedNote], SongMetada
             suggested = "right"
         else:
             suggested = "split"
+        instrument_id, instrument_name, is_piano = _instrument_identity(
+            track_name, programs
+        )
         track_summaries.append(
             TrackSummary(
                 index=track_index,
                 name=track_name,
+                instrument_id=instrument_id,
+                instrument_name=instrument_name,
+                is_piano=is_piano,
                 channel=statistics.mode(channels) if channels else None,
                 note_count=len(track_notes),
                 min_pitch=min(pitches),
@@ -153,14 +194,27 @@ def parse_midi(data: bytes) -> tuple[mido.MidiFile, list[ParsedNote], SongMetada
         )
 
     if not notes:
-        raise ValueError("The MIDI contains no playable piano notes.")
+        raise ValueError("The MIDI contains no playable notes.")
 
-    if len(track_summaries) == 2 and all(
-        track.suggested_assignment == "split" for track in track_summaries
-    ):
-        ordered = sorted(track_summaries, key=lambda track: track.median_pitch)
-        ordered[0].suggested_assignment = "left"
-        ordered[1].suggested_assignment = "right"
+    instrument_groups: dict[str, list[TrackSummary]] = defaultdict(list)
+    for track in track_summaries:
+        instrument_groups[track.instrument_id].append(track)
+
+    for group in instrument_groups.values():
+        unassigned = [track for track in group if track.suggested_assignment == "split"]
+        if len(group) == 2 and len(unassigned) == 2:
+            ordered = sorted(group, key=lambda track: track.median_pitch)
+            ordered[0].suggested_assignment = "left"
+            ordered[1].suggested_assignment = "right"
+        elif len(group) == 1 and not group[0].is_piano:
+            group[0].suggested_assignment = "right"
+
+    has_piano = any(track.is_piano for track in track_summaries)
+    multiple_instruments = len(instrument_groups) > 1
+    for track in track_summaries:
+        track.default_selected = not (
+            multiple_instruments and has_piano and not track.is_piano
+        )
 
     notes.sort(
         key=lambda note: (

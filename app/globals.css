@@ -341,6 +341,81 @@
   color: #66762e;
 }
 
+.midi-inspecting,
+.midi-part-summary {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 12px 0;
+  padding: 11px 12px;
+  border-radius: 10px;
+  background: #f2f5e8;
+  color: #58603e;
+  font-size: 10px;
+}
+
+.midi-part-summary > span {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.midi-part-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  margin: 14px 0;
+  padding: 0;
+  border: 0;
+}
+
+.midi-part-picker legend {
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.midi-part-picker > p {
+  margin: -2px 0 5px;
+  color: #7b7a73;
+  font-size: 9px;
+}
+
+.midi-part-picker > label {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  align-items: center;
+  gap: 9px;
+  padding: 10px 11px;
+  border: 1px solid #e2dfd7;
+  border-radius: 10px;
+  cursor: pointer;
+}
+
+.midi-part-picker > label.selected {
+  border-color: #91a84b;
+  background: rgba(210, 255, 102, 0.1);
+}
+
+.midi-part-picker > label span {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.midi-part-picker strong {
+  font-size: 11px;
+}
+
+.midi-part-picker small {
+  color: #7b7a73;
+  font-size: 9px;
+}
+
+.midi-part-picker .selection-error {
+  color: #a94c3d;
+}
+
 @media (max-width: 1500px) {
   .keyboard-hint {
     display: none;
@@ -1569,6 +1644,70 @@ input[type="range"] {
   line-height: 1.45;
 }
 
+.bridge-controls {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px 12px;
+  padding: 11px 12px;
+  border: 1px solid #e2dfd7;
+  border-radius: 9px;
+  background: #fbfaf7;
+}
+
+.bridge-controls-heading {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.bridge-controls-heading > span,
+.bridge-controls > label:not(.bridge-mirror-toggle) {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.bridge-controls-heading strong {
+  font-size: 10px;
+}
+
+.bridge-controls-heading small {
+  color: var(--muted);
+  font-size: 8px;
+}
+
+.bridge-mirror-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: #62625d;
+  font-size: 9px;
+  cursor: pointer;
+}
+
+.bridge-controls > label:not(.bridge-mirror-toggle) > span {
+  display: flex;
+  justify-content: space-between;
+  color: #6b6a64;
+  font-size: 8px;
+}
+
+.bridge-controls label b {
+  color: #4e5d28;
+  font-weight: 800;
+}
+
+.bridge-controls input[type="range"] {
+  width: 100%;
+  accent-color: var(--acid-deep);
+}
+
+.bridge-controls input[type="range"]:disabled {
+  opacity: 0.48;
+}
+
 .structured-sequence {
   display: flex;
   flex-direction: column;
@@ -1589,6 +1728,7 @@ input[type="range"] {
   background: #fbfaf7;
 }
 
+.structured-sequence li.handoff,
 .structured-sequence li.connect {
   background: #f8f8f3;
 }
@@ -1986,6 +2126,98 @@ input[type="range"] {
   line-height: 1.55;
   font-size: 13px;
   margin: 18px 0 22px;
+}
+
+.welcome-recents {
+  width: min(470px, 100%);
+  margin: 0 0 22px;
+  text-align: left;
+}
+
+.welcome-recents > .card-kicker {
+  margin: 0 0 9px 3px;
+}
+
+.welcome-recents > button {
+  width: 100%;
+  min-height: 62px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 6px;
+  padding: 9px 13px;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  background: var(--panel, #faf9f5);
+  color: var(--ink);
+  text-align: left;
+  cursor: pointer;
+}
+
+.welcome-recents > button:hover {
+  border-color: var(--acid-deep);
+}
+
+.welcome-recent-icon {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 9px;
+  background: rgba(210, 255, 102, 0.19);
+}
+
+.welcome-recent-copy {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.welcome-recent-copy strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+}
+
+.welcome-recent-copy small,
+.welcome-recent-action {
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.welcome-recents > .welcome-view-all {
+  min-height: 34px;
+  justify-content: center;
+  background: transparent;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.welcome-backup-actions,
+.library-backup-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.backup-notice,
+.library-backup-notice {
+  color: #5c7229 !important;
+  font-size: 11px !important;
+}
+
+.library-backup-actions {
+  justify-content: flex-start;
+  margin: 0 0 13px;
+}
+
+.library-backup-notice {
+  margin: 0 0 12px;
 }
 
 .backend-help {
@@ -2694,12 +2926,16 @@ input[type="range"] {
 :root[data-theme="dark"] .structured-route-summary,
 :root[data-theme="dark"] .structured-sequence li,
 :root[data-theme="dark"] .structured-trouble-spot,
+:root[data-theme="dark"] .bridge-controls,
 :root[data-theme="dark"] .structured-teacher-notes,
 :root[data-theme="dark"] .analysis-start,
 :root[data-theme="dark"] .tutor-placeholder,
 :root[data-theme="dark"] .settings-modal,
 :root[data-theme="dark"] .library-song-row,
 :root[data-theme="dark"] .midi-dropzone,
+:root[data-theme="dark"] .midi-part-picker > label,
+:root[data-theme="dark"] .midi-part-summary,
+:root[data-theme="dark"] .midi-inspecting,
 :root[data-theme="dark"] .field input,
 :root[data-theme="dark"] .field select,
 :root[data-theme="dark"] .field textarea,
@@ -2736,11 +2972,15 @@ input[type="range"] {
 :root[data-theme="dark"] .pattern-note,
 :root[data-theme="dark"] .tip-list > div:not(.practice-cue),
 :root[data-theme="dark"] .structured-intro p,
+:root[data-theme="dark"] .bridge-mirror-toggle,
+:root[data-theme="dark"] .bridge-controls > label:not(.bridge-mirror-toggle) > span,
 :root[data-theme="dark"] .structured-step-main > span:last-child,
 :root[data-theme="dark"] .structured-combinations > p,
 :root[data-theme="dark"] .field small,
 :root[data-theme="dark"] .modal-intro,
 :root[data-theme="dark"] .track-row small,
+:root[data-theme="dark"] .midi-part-picker > p,
+:root[data-theme="dark"] .midi-part-picker small,
 :root[data-theme="dark"] .split-field small {
   color: #d0d0d7;
 }
@@ -2749,6 +2989,11 @@ input[type="range"] {
   background: #454954;
   color: var(--ink);
   box-shadow: none;
+}
+
+:root[data-theme="dark"] .midi-part-picker > label.selected {
+  border-color: var(--acid-deep);
+  background: rgba(202, 255, 98, 0.08);
 }
 
 :root[data-theme="dark"] .route-segmented button.active {
@@ -2992,6 +3237,15 @@ input[type="range"] {
 
   .track-row {
     grid-template-columns: 1fr;
+  }
+
+  .bridge-controls {
+    grid-template-columns: 1fr;
+  }
+
+  .bridge-controls-heading {
+    align-items: flex-start;
+    flex-direction: column;
   }
 
   .split-field {

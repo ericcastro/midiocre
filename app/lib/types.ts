@@ -5,6 +5,10 @@ export type PracticeMode = "balanced" | "challenge" | "structured";
 export interface TrackSummary {
   index: number;
   name: string;
+  instrument_id: string;
+  instrument_name: string;
+  is_piano: boolean;
+  default_selected: boolean;
   channel: number | null;
   note_count: number;
   min_pitch: number;
@@ -176,6 +180,14 @@ export interface MidiNote {
   endTick: number;
   bar: number;
   beatOffset: number;
+}
+
+export interface InstrumentGroup {
+  id: string;
+  name: string;
+  isPiano: boolean;
+  defaultSelected: boolean;
+  tracks: TrackSummary[];
 }
 
 export interface AiSettings {

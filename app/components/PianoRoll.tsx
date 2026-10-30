@@ -6,6 +6,8 @@ import type { HandMode, MidiNote, PracticeUnit } from "../lib/types";
 interface PianoRollProps {
   notes: MidiNote[];
   currentTime: number;
+  isPlaying: boolean;
+  trackColors: Record<number, string>;
   duration: number;
   handMode: HandMode;
   loopStart: number;
@@ -73,6 +75,8 @@ function keyGeometry(width: number, zoom: number, pan: number) {
 export function PianoRoll({
   notes,
   currentTime,
+  isPlaying,
+  trackColors,
   duration,
   handMode,
   loopStart,
@@ -235,7 +239,6 @@ export function PianoRoll({
     const nextLoopStartDelta = isLoopDelaying
       ? Math.max(0, loopDelayRemainingSeconds)
       : currentPassEndDelta + delayGap;
-    const cycleLength = loopLength + delayGap;
 
     const gradient = ctx.createLinearGradient(0, 0, 0, keyboardY);
     gradient.addColorStop(0, "#171923");
@@ -268,8 +271,8 @@ export function PianoRoll({
         fillTimelineBand(
           0,
           currentPassEndDelta,
-          "rgba(183,215,105,.035)",
-          "CURRENT LOOP",
+          "rgba(183,215,105,.10)",
+          isPlaying ? "PLAYING NOW" : "LOOP RANGE",
         );
       }
       if (nextLoopStartDelta > currentPassEndDelta + 0.01) {
@@ -277,29 +280,15 @@ export function PianoRoll({
           currentPassEndDelta,
           nextLoopStartDelta,
           "rgba(167,177,147,.085)",
-          "COUNT-IN SPACE",
+          "COUNT-IN",
         );
       }
-      for (
-        let cycleStart = nextLoopStartDelta, cycle = 0;
-        cycleStart < secondsVisible;
-        cycleStart += cycleLength, cycle += 1
-      ) {
+      if (nextLoopStartDelta < secondsVisible) {
         fillTimelineBand(
-          cycleStart,
-          cycleStart + loopLength,
-          cycle === 0
-            ? "rgba(210,255,102,.085)"
-            : "rgba(210,255,102,.045)",
-          cycle === 0 ? "NEXT LOOP" : undefined,
+          nextLoopStartDelta,
+          nextLoopStartDelta + loopLength,
+          "rgba(210,255,102,.035)",
         );
-        if (delayGap > 0) {
-          fillTimelineBand(
-            cycleStart + loopLength,
-            cycleStart + cycleLength,
-            "rgba(167,177,147,.065)",
-          );
-        }
       }
     }
 
@@ -340,38 +329,31 @@ export function PianoRoll({
     }
 
     if (validLoop) {
-      const markers: Array<{ delta: number; label: string; muted?: boolean }> = [];
+      const markers: Array<{ delta: number; label: string }> = [];
       if (delayGap > 0 || isLoopDelaying) {
-        markers.push({ delta: currentPassEndDelta, label: "B" });
+        if (!isLoopDelaying) {
+          markers.push({ delta: currentPassEndDelta, label: "LOOP ENDS" });
+        }
         markers.push({
           delta: nextLoopStartDelta,
-          label: "A · NEXT LOOP",
-          muted: isLoopDelaying,
+          label: "RESTARTS HERE",
         });
       } else {
         markers.push({
           delta: nextLoopStartDelta,
-          label: "B → A · LOOP",
+          label: "RESTARTS HERE",
         });
       }
-      markers.push({
-        delta: nextLoopStartDelta + loopLength,
-        label: "B",
-      });
       for (const marker of markers) {
         const y = keyboardY - marker.delta * pixelsPerSecond;
         if (y >= 0 && y <= keyboardY) {
-          ctx.strokeStyle = marker.muted
-            ? "rgba(210,255,102,.58)"
-            : "#d2ff66";
+          ctx.strokeStyle = "#d2ff66";
           ctx.lineWidth = 1.5;
           ctx.beginPath();
           ctx.moveTo(0, y);
           ctx.lineTo(width, y);
           ctx.stroke();
-          ctx.fillStyle = marker.muted
-            ? "rgba(210,255,102,.72)"
-            : "#d2ff66";
+          ctx.fillStyle = "#d2ff66";
           ctx.font = "700 11px system-ui";
           ctx.fillText(marker.label, 8, Math.max(13, y - 5));
         }
@@ -383,7 +365,11 @@ export function PianoRoll({
     for (const note of notes) {
       if (highlightedEventIds.has(note.id)) highlightedPitches.add(note.midi);
     }
-    const occurrences: Array<{ note: MidiNote; delta: number }> = [];
+    const occurrences: Array<{
+      note: MidiNote;
+      delta: number;
+      previewOpacity?: number;
+    }> = [];
     if (validLoop) {
       if (!isLoopDelaying) {
         const passStart = currentTime < loopStart ? 0 : loopStart;
@@ -397,15 +383,12 @@ export function PianoRoll({
       const loopNotes = notes.filter(
         (note) => note.time >= loopStart && note.time < loopEnd,
       );
-      for (
-        let cycleStart = nextLoopStartDelta;
-        cycleStart < secondsVisible + 0.25;
-        cycleStart += cycleLength
-      ) {
+      if (nextLoopStartDelta < secondsVisible + 0.25) {
         for (const note of loopNotes) {
           occurrences.push({
             note,
-            delta: cycleStart + (note.time - loopStart),
+            delta: nextLoopStartDelta + (note.time - loopStart),
+            previewOpacity: 0.42,
           });
         }
       }
@@ -417,18 +400,21 @@ export function PianoRoll({
       }
     }
 
-    for (const { note, delta } of occurrences) {
+    for (const { note, delta, previewOpacity = 1 } of occurrences) {
       if (delta > secondsVisible || delta + note.duration < -0.25) continue;
       const geo = geometry.get(note.midi);
       if (!geo || geo.x + geo.width < 0 || geo.x > width) continue;
       const isMuted = handMode !== "both" && note.hand !== handMode;
-      const color = note.hand === "left" ? "#7e9dff" : "#ffaf68";
+      const color =
+        trackColors[note.trackIndex] ??
+        (note.hand === "left" ? "#7e9dff" : "#ffaf68");
       const trueHeight = note.duration * pixelsPerSecond;
       const minimumHeight = noteVisibility === "enhanced" ? 7 : 2;
       const noteHeight = Math.max(minimumHeight, trueHeight);
       const y = keyboardY - delta * pixelsPerSecond - noteHeight;
       const radius = Math.min(4, geo.width * 0.2);
-      ctx.fillStyle = isMuted ? rgba(color, 0.13) : rgba(color, 0.9);
+      const noteOpacity = isMuted ? 0.13 : 0.9;
+      ctx.fillStyle = rgba(color, noteOpacity * previewOpacity);
       ctx.beginPath();
       ctx.roundRect(
         geo.x + 1,
@@ -452,7 +438,7 @@ export function PianoRoll({
           );
         }
       }
-      if (!isMuted && delta <= 0 && delta + note.duration >= 0) {
+      if (isPlaying && !isMuted && delta <= 0 && delta + note.duration >= 0) {
         activePitches.set(note.midi, color);
       }
     }
@@ -501,6 +487,7 @@ export function PianoRoll({
     handMode,
     horizontalPan,
     horizontalZoom,
+    isPlaying,
     isLoopDelaying,
     loopDelayGapSeconds,
     loopDelayRemainingSeconds,
@@ -508,6 +495,7 @@ export function PianoRoll({
     loopEnd,
     loopStart,
     notes,
+    trackColors,
     selectedUnit,
     sizeVersion,
     rollZoom,
