@@ -3361,3 +3361,60 @@ input[type="range"] {
     height: auto;
   }
 }
+
+/* Transcription review is deliberately separate from the falling-note practice roll. */
+.youtube-backdrop { padding: 18px; z-index: 90; }
+.youtube-review { width: min(1450px, 100%); height: min(96vh, 1200px); display:flex; flex-direction:column; background:var(--panel, #f6f8f5); color:var(--ink, #193b35); border-radius:20px; box-shadow:0 24px 100px #10241c66; overflow:hidden; }
+.youtube-review .modal-header { padding:20px 24px 12px; flex-shrink:0; }
+.youtube-review h2 { display:flex; align-items:center; gap:10px; }
+.youtube-review h3 { font-size:19px; margin:16px 0 8px; }
+.youtube-review p { line-height:1.5; margin:8px 0 14px; }
+.youtube-review button:not(.quiet-icon) { border:1px solid #b6c9bd; border-radius:9px; padding:9px 13px; display:inline-flex; align-items:center; justify-content:center; gap:6px; cursor:pointer; background:#fff8; }
+.youtube-review button.primary-action, .youtube-review button[aria-pressed="true"] { background:#216452; color:white; border-color:#216452; }
+.youtube-review button:disabled { opacity:.45; cursor:not-allowed; }
+.youtube-review button:focus-visible, .youtube-review input:focus-visible, .youtube-review select:focus-visible { outline:3px solid #d3ac55; outline-offset:2px; }
+.review-steps { display:grid; grid-template-columns:repeat(4,1fr); gap:6px; padding:0 24px 14px; border-bottom:1px solid #cddbd1; }
+.youtube-review .review-steps button { justify-content:flex-start; border:0; font-size:13px; background:transparent; }
+.review-steps b { display:grid; place-items:center; border:1px solid #b4cbbd; border-radius:50%; width:26px; height:26px; flex-shrink:0; }
+.youtube-review .review-steps .active { background:#e0ede4; }
+.review-steps .active b { background:#216452; color:white; }
+.review-body { padding:8px 24px 24px; overflow:auto; flex:1; }
+.review-footer { display:flex; justify-content:space-between; align-items:center; gap:16px; padding:10px 24px; font-size:11px; border-top:1px solid #cddbd1; }
+.review-source-entry { max-width:760px; margin:28px auto; }
+.review-resume { display:grid; gap:8px; margin-top:30px; }
+.review-controls { display:flex; align-items:end; flex-wrap:wrap; gap:10px; margin:12px 0; }
+.review-controls label { display:flex; flex-direction:column; gap:5px; font-size:12px; }
+.review-controls input:not([type="checkbox"]):not([type="range"]) { width:125px; }
+.youtube-review input:not([type="checkbox"]):not([type="range"]), .youtube-review select { border:1px solid #b4c9bb; border-radius:8px; padding:9px; background:#fff; color:#203a32; min-height:36px; }
+.youtube-review details { border:1px solid #c6d6cb; padding:12px; border-radius:10px; margin:14px 0; }
+.youtube-review summary { cursor:pointer; font-weight:600; }
+.review-help { color:#5f766b; font-size:12px; }
+.review-warning { background:#fff2cf; border:1px solid #dfc789; border-radius:10px; padding:12px; margin:12px 0; font-size:13px; }
+.review-job { display:flex; align-items:center; flex-wrap:wrap; gap:12px; padding:12px; background:#e4eee8; border-radius:9px; margin:10px 0; font-size:13px; }
+.review-job .analysis-error { flex-basis:100%; overflow-wrap:anywhere; }
+.review-version-cards { display:grid; grid-template-columns:1fr 1fr; gap:12px; margin:16px 0; }
+.review-version-cards>div { border:1px solid #c2d5c9; padding:12px; border-radius:10px; }
+.review-version-cards p { font-size:12px; margin-bottom:0; }
+.review-inspection { margin-top:24px; border-top:1px solid #c5d6cb; padding-top:18px; }
+.review-transport { display:flex; align-items:center; flex-wrap:wrap; gap:12px; font-size:12px; }
+.review-transport label { display:flex; align-items:center; gap:6px; }
+.review-transport input[type="range"] { width:90px; }
+.review-listen { display:inline-flex; gap:2px; }
+.review-seek { display:flex; align-items:center; gap:10px; margin:14px 0; font-size:12px; }
+.review-seek input { flex:1; }
+.review-roll { background:#203033; border-radius:10px; overflow:hidden; }
+.review-roll svg { width:100%; height:528px; touch-action:none; display:block; }
+.review-roll:focus-visible { outline:3px solid #d3ac55; }
+.review-legend { display:flex; flex-wrap:wrap; gap:12px; background:#203033; padding:10px; border-radius:8px; font-size:12px; color:#d3dfda; }
+.review-timeline { position:relative; height:60px; background:repeating-linear-gradient(90deg,#dce8e0 0,#dce8e0 9%,#c4d8cb 10%); border-radius:10px; overflow:hidden; touch-action:none; cursor:crosshair; user-select:none; }
+.review-timeline>div { position:absolute; top:0; bottom:0; background:#43846880; border:2px solid #216452; }
+.review-timeline span { position:relative; display:block; padding:18px; text-align:center; pointer-events:none; font-size:13px; }
+.review-confirm { display:flex; gap:10px; padding:16px 0; }
+@media(max-width:700px) { .youtube-backdrop{padding:0}.youtube-review{height:100dvh;border-radius:0}.review-steps{padding:0 8px 10px;gap:0}.youtube-review .review-steps button{font-size:10px;padding:5px;flex-direction:column}.review-body{padding:8px 12px 18px}.review-version-cards{grid-template-columns:1fr}.review-footer{padding:8px 12px;flex-wrap:wrap}.review-roll svg{height:440px}.review-transport{gap:8px} }
+:root[data-theme="dark"] .youtube-review button:not(.primary-action):not([aria-pressed="true"]) { color:#edf4ef; background:#ffffff0b; }
+:root[data-theme="dark"] .youtube-review .review-steps .active { background:#355b4b; }
+:root[data-theme="dark"] .youtube-review .review-job { background:#283c34; }
+:root[data-theme="dark"] .youtube-review .review-warning { background:#493e24; border-color:#786638; color:#fff1cc; }
+:root[data-theme="dark"] .youtube-review .review-help { color:#b0c6b9; }
+:root[data-theme="dark"] .youtube-review .review-timeline { color:#132d21; }
+:root[data-theme="dark"] .youtube-review .field input { color:#203a32; }

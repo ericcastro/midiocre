@@ -36,7 +36,7 @@ interface ScreenWakeLockSentinel {
   release(): Promise<void>;
 }
 
-interface NavigatorWithWakeLock extends Navigator {
+interface NavigatorWithWakeLock extends Omit<Navigator, "wakeLock"> {
   wakeLock?: {
     request(type: "screen"): Promise<ScreenWakeLockSentinel>;
   };

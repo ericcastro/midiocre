@@ -34,6 +34,8 @@ credentials/
 
 # Python and JavaScript build output
 /.venv/
+/.venv-muscriptor/
+/muscriptor-*.safetensors
 /.pytest_cache/
 __pycache__/
 *.py[cod]

@@ -7,6 +7,7 @@ import type { InstrumentGroup, SongMetadata, TrackAssignment } from "../lib/type
 
 interface ImportSongDialogProps {
   busy: boolean;
+  onYouTube: () => void;
   onClose: () => void;
   onSubmit: (
     file: File,
@@ -16,7 +17,7 @@ interface ImportSongDialogProps {
   ) => void;
 }
 
-export function ImportSongDialog({ busy, onClose, onSubmit }: ImportSongDialogProps) {
+export function ImportSongDialog({ busy, onClose, onSubmit, onYouTube }: ImportSongDialogProps) {
   const [file, setFile] = useState<File | null>(null);
   const [title, setTitle] = useState("");
   const [contextText, setContextText] = useState("");
@@ -116,6 +117,8 @@ export function ImportSongDialog({ busy, onClose, onSubmit }: ImportSongDialogPr
             <X size={18} />
           </button>
         </div>
+
+        <button className="secondary-action" onClick={onYouTube} disabled={busy}>Import from YouTube · review audio and notes</button>
 
         <div
           className={`midi-dropzone ${file ? "has-file" : ""}`}

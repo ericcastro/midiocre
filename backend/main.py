@@ -14,6 +14,7 @@ from fastapi.responses import FileResponse, Response
 
 from .ai import AnalysisProviderError, analyze_with_ollama, analyze_with_openai
 from .library_backup import MAX_BACKUP_BYTES, export_library, import_library
+from .transcription.reviews import router as youtube_router, shutdown as shutdown_youtube
 from .db import MIDI_DIR, connect, default_state, dumps, ensure_storage, loads
 from .midi_analysis import (
     analysis_input_fingerprint,
@@ -53,9 +54,11 @@ MAX_MIDI_BYTES = 20 * 1024 * 1024
 async def lifespan(_app: FastAPI):
     ensure_storage()
     yield
+    shutdown_youtube()
 
 
 app = FastAPI(title="MIDIocre API", version="0.1.0", lifespan=lifespan)
+app.include_router(youtube_router)
 app.add_middleware(
     CORSMiddleware,
     allow_origin_regex=(

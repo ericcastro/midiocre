@@ -27,9 +27,12 @@ async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${API_BASE}${path}`, init);
   if (!response.ok) {
     const body = (await response.json().catch(() => null)) as {
-      detail?: string;
+      detail?: string | { msg?: string }[];
     } | null;
-    throw new Error(body?.detail ?? `Request failed (${response.status})`);
+    const detail = body?.detail;
+    throw new Error(typeof detail === "string" ? detail : Array.isArray(detail)
+      ? detail.map(item => item.msg || "Invalid value").join(". ")
+      : `Request failed (${response.status})`);
   }
   if (response.status === 204) return undefined as T;
   return response.json() as Promise<T>;
@@ -131,5 +134,11 @@ export async function analyzeSong(
       ollama_base_url: settings.ollamaBaseUrl,
       reasoning_effort: settings.reasoningEffort,
     }),
+  });
+}
+
+export function reviewApi<T>(path: string, body?: unknown, method = "POST") {
+  return apiFetch<T>(`/api/youtube${path}`, body === undefined ? undefined : {
+    method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
   });
 }

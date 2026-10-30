@@ -57,6 +57,13 @@ npm run dev:all
 The web app normally opens on `http://localhost:3000`; the Python API runs on
 `http://127.0.0.1:8765`.
 
+## Import a YouTube performance
+
+Open **Import MIDI → Import from YouTube** to cache a performance, compare passage
+experiments, correct notes, and review a full-piece MIDI before Structured practice.
+The optional MuScriptor worker uses a separate environment and can load local
+checkpoints. See [setup, supported controls, and limitations](docs/YOUTUBE_IMPORT.md).
+
 ## Use MIDIocre from an iPad
 
 Connect the computer and iPad to the same trusted Wi-Fi network, then run:

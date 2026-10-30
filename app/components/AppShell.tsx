@@ -56,6 +56,7 @@ import type {
   TrackAssignment,
 } from "../lib/types";
 import { useMidiPlayer } from "../hooks/useMidiPlayer";
+import { YouTubeImport } from "./YouTubeImport";
 import { ImportSongDialog } from "./ImportSongDialog";
 import { PianoRoll } from "./PianoRoll";
 import { SongLibraryDialog } from "./SongLibraryDialog";
@@ -139,6 +140,7 @@ export function AppShell() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [handSetupOpen, setHandSetupOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
+  const [youtubeOpen, setYoutubeOpen] = useState(false);
   const [contextOpen, setContextOpen] = useState(false);
   const [contextDraft, setContextDraft] = useState({ title: "", context_text: "" });
   const [contextSaving, setContextSaving] = useState(false);
@@ -1744,12 +1746,19 @@ export function AppShell() {
       {importOpen && (
         <ImportSongDialog
           busy={uploading}
+          onYouTube={() => { player.pause(); setImportOpen(false); setYoutubeOpen(true); }}
           onClose={() => !uploading && setImportOpen(false)}
           onSubmit={(file, title, contextText, trackAssignments) =>
             void handleUpload(file, title, contextText, trackAssignments)
           }
         />
       )}
+
+      {youtubeOpen && <YouTubeImport onClose={() => setYoutubeOpen(false)} onImported={(song) => {
+        setSongs((current) => [song, ...current.filter((item) => item.id !== song.id)]);
+        setYoutubeOpen(false);
+        void openSong(song.id);
+      }} />}
 
       {contextOpen && activeSong && (
         <div className="modal-backdrop" role="presentation" onMouseDown={() => !contextSaving && setContextOpen(false)}>
